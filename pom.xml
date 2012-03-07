@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <packaging>jar</packaging>
+    <groupId>org.dspace</groupId>
+    <artifactId>dspace-discovery-elastic-search</artifactId>
+    <version>3.0-SNAPSHOT</version>
+    <name>DSpace Discovery :: Discovery Elastic Search Implementation</name>
+
+    <parent>
+        <groupId>org.dspace</groupId>
+        <artifactId>dspace-discovery</artifactId>
+        <version>3.0-SNAPSHOT</version>
+        <relativePath>..</relativePath>
+    </parent>
+
+    <repositories>
+        <repository>
+            <id>sonatype-nexus-releases</id>
+            <name>Sonatype Nexus Releases</name>
+            <url>https://oss.sonatype.org/content/repositories/releases</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
+
+
+    <dependencies>
+        <dependency>
+            <groupId>org.dspace</groupId>
+            <artifactId>dspace-discovery-provider</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>javax.servlet</groupId>
+            <artifactId>servlet-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.elasticsearch</groupId>
+            <artifactId>elasticsearch</artifactId>
+            <version>0.17.6</version>
+        </dependency>
+
+
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+    </dependencies>
+
+    <!--
+       The Subversion repository location is used by Continuum to update
+       against when changes have occured, this spawns a new build cycle
+       and releases snapshots into the snapshot repository below.
+    -->
+    <scm>
+        <connection>scm:svn:http://scm.dspace.org/svn/repo/dspace/trunk/dspace-discovery/dspace-discovery-elastic-search</connection>
+        <developerConnection>
+            scm:svn:https://scm.dspace.org/svn/repo/dspace/trunk/dspace-discovery/dspace-discovery-elastic-search
+        </developerConnection>
+        <url>http://scm.dspace.org/svn/repo/dspace/trunk/dspace-discovery/dspace-discovery-elastic-search</url>
+    </scm>
+</project>
