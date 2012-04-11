@@ -39,10 +39,6 @@ public class ElasticSearchIndexer implements IndexingService{
     private static Client indexClient;
     public static final String INDEX_NAME = "discovery-index";
 
-    //TODO: perhaps not needed for elastic search ?
-    public static final String FILTER_SEPARATOR = "|||";
-
-
     private static final Logger log = Logger.getLogger(ElasticSearchIndexer.class);
 
     @Override
@@ -58,10 +54,12 @@ public class ElasticSearchIndexer implements IndexingService{
             handle = HandleManager.findHandle(context, dso);
         }
 
-        Client client = getIndexClient();
-        IndexRequestBuilder dspaceObjectBuilder = client.prepareIndex(INDEX_NAME, String.valueOf(dso.getType()), String.valueOf(dso.getID()));
+        Client client = null;
 
         try {
+            client = getIndexClient();
+            IndexRequestBuilder dspaceObjectBuilder = client.prepareIndex(INDEX_NAME, String.valueOf(dso.getType()), String.valueOf(dso.getID()));
+
             switch (dso.getType()) {
                 case Constants.ITEM:
                     Item item = (Item) dso;
@@ -255,11 +253,7 @@ public class ElasticSearchIndexer implements IndexingService{
                             //Add a special filter
                             //We use a separator to split up the lowercase and regular case, this is needed to get our filters in regular case
                             //Solr has issues with facet prefix and cases
-                            String separator = new DSpace().getConfigurationService().getProperty("discovery.solr.facets.split.char");
-                            if(separator == null){
-                                separator = FILTER_SEPARATOR;
-                            }
-                            itemBuilder.field(configuration.getIndexFieldName() + "_filter", value.toLowerCase() + separator + value);
+                            itemBuilder.field(configuration.getIndexFieldName() + "_filter", value);
                         }else
                         if(configuration.getType().equals(DiscoveryConfigurationParameters.TYPE_DATE)){
                             //For our sidebar filters that are dates we only add the year
@@ -268,10 +262,11 @@ public class ElasticSearchIndexer implements IndexingService{
                                 String indexField = configuration.getIndexFieldName() + ".year";
                                 itemBuilder.field(indexField, DateFormatUtils.formatUTC(date, "yyyy"));
                                 //Also save a sort value of this year, this is required for determining the upper & lower bound year of our facet
-                                if(itemBuilder.field(indexField + "_sort") == null){
-                                    //We can only add one year so take the first one
-                                    itemBuilder.field(indexField + "_sort", DateFormatUtils.formatUTC(date, "yyyy"));
-                                }
+                                //TODO: fix this ?
+//                                if(itemBuilder.(indexField + "_sort") == null){
+                                //We can only add one year so take the first one
+//                                    itemBuilder.field(indexField + "_sort", DateFormatUtils.formatUTC(date, "yyyy"));
+//                                }
                             } else {
                                 log.warn("Error while indexing sidebar date field, item: " + item.getHandle() + " metadata field: " + field + " date value: " + date);
                             }
@@ -571,13 +566,60 @@ public class ElasticSearchIndexer implements IndexingService{
 
     }
 
-    protected Client getIndexClient(){
+    protected Client getIndexClient() throws IOException {
         if(indexClient == null){
             ImmutableSettings.Builder settings = ImmutableSettings.settingsBuilder();
             NodeBuilder nBuilder = NodeBuilder.nodeBuilder().settings(settings);
             Node node = nBuilder.build().start();
             indexClient = node.client();
+
+            if (indexClient.admin().indices().prepareExists(INDEX_NAME).execute().actionGet().exists()) {
+                indexClient.admin().indices().prepareDelete(INDEX_NAME).execute().actionGet();
+
+                String mapping =
+                        XContentFactory.jsonBuilder().startObject().startObject("mappings")
+                                .startObject("filter")
+                                .field("match", "*_filter")
+                                .startObject("properties")
+                                .field("type", "string")
+                                .field("analyzer", "keyword")
+                                .field("store", "yes")
+                                .endObject().endObject()
+                                .endObject().endObject().string();
+                mapping = XContentFactory.jsonBuilder()
+                        .startObject()
+                        .startObject("index")
+                        .startObject("analysis")
+                        .startObject("analyzer")
+                        .startObject("default")
+                        .field("type", "keyword")
+                        .endObject()
+                        .endObject()
+                        .endObject()
+                        .endObject()
+                        .endObject()
+                        .string();
+
+//            indexClient.admin().indices().prepareCreate(INDEX_NAME)
+//                    .setSettings(ImmutableSettings.settingsBuilder().loadFromSource(XContentFactory.jsonBuilder()
+//                            .startObject()
+//                            .startObject("analysis")
+//                            .startObject("analyzer")
+//                            .field("type", "string")
+//                            .field("tokenizer", "keyword")
+//                            .field("length", "2")
+//                            .endObject()
+//                            .endObject()
+//                            .endObject()
+//                            .string()))
+//                    .execute().actionGet();
+                System.out.println(mapping);
+                indexClient.admin().indices().prepareCreate(INDEX_NAME)
+                        .setSettings(ImmutableSettings.settingsBuilder().loadFromSource(mapping))
+                        .execute().actionGet();
 //            indexClient.admin().indices().create(new CreateIndexRequest(INDEX_NAME)).actionGet();
+            }
+
         }
         return indexClient;
     }

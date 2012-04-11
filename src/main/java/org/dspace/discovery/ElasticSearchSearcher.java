@@ -1,7 +1,9 @@
 package org.dspace.discovery;
 
 import org.apache.log4j.Logger;
+import org.dspace.content.DCDate;
 import org.dspace.content.DSpaceObject;
+import org.dspace.core.Constants;
 import org.dspace.core.Context;
 import org.dspace.core.LogManager;
 import org.dspace.discovery.*;
@@ -24,6 +26,7 @@ import org.elasticsearch.search.facet.terms.TermsFacetBuilder;
 import java.io.InputStream;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
@@ -36,6 +39,7 @@ import java.util.Map;
  */
 public class ElasticSearchSearcher implements SearchService {
 
+    private static Client client;
     private static final Logger log = Logger.getLogger(ElasticSearchSearcher.class);
 
     @Override
@@ -46,19 +50,24 @@ public class ElasticSearchSearcher implements SearchService {
 
     @Override
     public DiscoverResult search(Context context, DiscoverQuery query) throws SearchServiceException {
-        Node node = NodeBuilder.nodeBuilder().node();
         try {
-            Client client = node.client();
-            SearchRequestBuilder requestBuilder = client.prepareSearch("repository")
+            SearchRequestBuilder requestBuilder = getClient().prepareSearch("discovery-index")
                     .setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
                     .setQuery(query.getQuery())
                     .setFrom(query.getStart()).setSize(query.getMaxResults()).setExplain(true);
+
+            for (int i = 0; i < query.getFilterQueries().size(); i++) {
+                String filterQuery = query.getFilterQueries().get(i);
+                requestBuilder.setFilter(filterQuery);
+
+            }
 
             //Add our facets to the query
             List<DiscoverFacetField> facetFields = query.getFacetFields();
             for (DiscoverFacetField discoverFacetField : facetFields) {
                 TermsFacetBuilder termsFacetBuilder = new TermsFacetBuilder(discoverFacetField.getField());
                 termsFacetBuilder.size(discoverFacetField.getLimit());
+                termsFacetBuilder.field(discoverFacetField.getField() + "_filter");
                 if(discoverFacetField.getSortOrder().equals(DiscoveryConfigurationParameters.SORT.COUNT)){
                     termsFacetBuilder.order(TermsFacet.ComparatorType.COUNT);
                 }else{
@@ -73,7 +82,6 @@ public class ElasticSearchSearcher implements SearchService {
 
 
             SearchHits hits = response.getHits();
-
             DiscoverResult result = new DiscoverResult();
             if(hits != null){
                 result.setStart(query.getStart());
@@ -100,7 +108,7 @@ public class ElasticSearchSearcher implements SearchService {
                         List<? extends TermsFacet.Entry> entries = resultFacet.getEntries();
                         for(TermsFacet.Entry entry : entries){
                             //TODO: as fitler query !
-                            facetResults.add(new DiscoverResult.FacetResult("", entry.getTerm(), entry.getCount()));
+                            facetResults.add(new DiscoverResult.FacetResult(discoverFacetField.getField() + ":" + entry.getTerm(), entry.getTerm(), entry.getCount()));
                         }
                         result.addFacetResult(discoverFacetField.getField(), facetResults.toArray(new DiscoverResult.FacetResult[facetResults.size()]));
                     }
@@ -108,15 +116,9 @@ public class ElasticSearchSearcher implements SearchService {
                 }
 
             }
-
-
             return result;
         } catch (SQLException e) {
             throw new SearchServiceException(e.getMessage(), e);
-        } finally {
-            if(node != null){
-                node.close();
-            }
         }
     }
 
@@ -141,16 +143,85 @@ public class ElasticSearchSearcher implements SearchService {
 
     @Override
     public DiscoverFilterQuery toFilterQuery(Context context, String filterQuery) throws SQLException {
-        return null;
+        DiscoverFilterQuery result = new DiscoverFilterQuery();
+
+        String field = filterQuery;
+        String value = filterQuery;
+
+        if(filterQuery.contains(":"))
+        {
+            field = filterQuery.substring(0, filterQuery.indexOf(":"));
+            value = filterQuery.substring(filterQuery.indexOf(":") + 1, filterQuery.length());
+        }else{
+            //We have got no field, so we are using everything
+            field = "*";
+        }
+
+        value = value.replace("\\", "");
+        if("*".equals(field))
+        {
+            field = "all";
+        }
+        if(filterQuery.startsWith("*:") || filterQuery.startsWith(":"))
+        {
+            filterQuery = filterQuery.substring(filterQuery.indexOf(":") + 1, filterQuery.length());
+        }
+//        "(tea coffee)".replaceFirst("\\((.*?)\\)", "")
+
+        value = transformDisplayedValue(context, field, value);
+
+        result.setField(field);
+        result.setFilterQuery(filterQuery);
+        result.setDisplayedValue(value);
+        return result;
     }
+
+
+    private String transformDisplayedValue(Context context, String field, String value) throws SQLException {
+        if(field.equals("location.comm") || field.equals("location.coll")){
+            value = locationToName(context, field, value);
+        }else if(value.matches("\\((.*?)\\)"))
+        {
+            //The brackets where added for better solr results, remove the first & last one
+            value = value.substring(1, value.length() -1);
+        }
+        return value;
+    }
+
+    public static String locationToName(Context context, String field, String value) throws SQLException {
+        if("location.comm".equals(field) || "location.coll".equals(field)){
+            int type = field.equals("location.comm") ? Constants.COMMUNITY : Constants.COLLECTION;
+            DSpaceObject commColl = DSpaceObject.find(context, type, Integer.parseInt(value));
+            if(commColl != null)
+            {
+                return commColl.getName();
+            }
+
+        }
+        return value;
+    }
+
 
     @Override
     public DiscoverFilterQuery toFilterQuery(Context context, String field, String value) throws SQLException {
-        return null;
+        DiscoverFilterQuery result = new DiscoverFilterQuery();
+        result.setField(field);
+        result.setDisplayedValue(transformDisplayedValue(context, field, value));
+        result.setFilterQuery((field == null || field.equals("") ? "" : field + ":") +  "(" + value + ")");
+        return result;
     }
 
     @Override
     public String toSortFieldIndex(String metadataField, String type) {
         return metadataField;
+    }
+
+    protected Client getClient(){
+        if(client == null) {
+            Node node = NodeBuilder.nodeBuilder().node();
+            client = node.client();
+//            node.close();
+        }
+        return client;
     }
 }
